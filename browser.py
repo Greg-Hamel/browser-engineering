@@ -1,6 +1,8 @@
 import socket
 import ssl
 import gzip
+import tkinter
+import tkinter.font
 
 from utils import unchunk, Cache
 
@@ -17,6 +19,9 @@ AMP_CHAR_CODES = {
     "ndash": "-",
     "copy": "©",
 }
+
+WIDTH, HEIGHT = 800, 600
+HSTEP, VSTEP = 13, 18
 
 redirect_counter = 0
 
@@ -74,8 +79,6 @@ def request(url, additional_headers = {}, redirect_number = 0):
                 http_request += bytes(f"{key}: {value}\r\n")
             
             http_request += b"\r\n" # Add proper HTTP file ending
-        
-
         
             s.send(http_request)
 
@@ -136,7 +139,7 @@ def request(url, additional_headers = {}, redirect_number = 0):
 
     return response_headers, body
 
-def show(body):
+def lex(body):
     in_angle = False
     in_body_tag = False
     possible_amp_code_index = 0
@@ -144,6 +147,7 @@ def show(body):
     text = ""
     for c in body:
         if c == "<":
+            text = text.rstrip(' \t')
             in_angle = True
         elif c == ">":
             in_angle = False
@@ -166,21 +170,115 @@ def show(body):
                 possible_amp_code_index = len(text) 
             text += c
 
-    print(text)
+    return text
 
-def to_source(body):
-    return "<body>" + body.replace("<", "&lt;").replace(">", "&gt;") + "</body>" 
+def layout(text, width=WIDTH, h_step=HSTEP, v_step=VSTEP):
+    display_list = []
+    cursor_x, cursor_y = h_step, v_step
+    for c in text:
+        if c == '\n':
+            cursor_x = h_step
+            cursor_y += 1.3 * v_step
+        display_list.append((cursor_x, cursor_y, c))
+        cursor_x += h_step
+        if cursor_x >= width - h_step:
+            cursor_y += v_step
+            cursor_x = h_step
+    
+    return display_list
 
-def load(url):
-    if url.startswith('view-source:'):
-        _, url = url.split(":", 1)
-        headers, body = request(url)
-        body = to_source(body)
-    else:
-        headers, body = request(url)
-    show(body)
+
+class Browser:
+    SCROLL_STEP = 100
+
+    def __init__(self):
+        self.display_list = []
+        self.body = ""
+        self.h_step = HSTEP
+        self.v_step= VSTEP
+
+        self.window = tkinter.Tk()
+        self.canvas = tkinter.Canvas(
+            self.window, 
+            width=WIDTH,
+            height=HEIGHT
+        )
+        self.canvas.pack(fill='both', expand=True)
+
+        self.window.bind("<Down>", self.scrolldown)
+        self.window.bind("<Up>", self.scrollup)
+        self.window.bind("<MouseWheel>", self.mouse_scroll)
+        self.window.bind("<Configure>", self.resize)
+        self.window.bind("<plus>", self.zoomin)
+        self.window.bind("<minus>", self.zoomout)
+
+        self.scroll = 0
+
+    def mouse_scroll(self, event):
+        self.scroll -= event.delta * 3
+
+        if self.scroll < 0:
+            self.scroll = 0
+        self.draw()
+
+    def resize(self, event):
+        # self.canvas.pack(fill='both', expand=True)
+        self.display_list = layout(self.body, event.width, self.h_step, self.v_step)
+        self.draw()
+
+    def scrolldown(self, event):
+        self.scroll += Browser.SCROLL_STEP
+        self.draw()
+
+    def scrollup(self, event):
+        self.scroll -= Browser.SCROLL_STEP
+        if self.scroll < 0:
+            self.scroll = 0
+        self.draw()
+
+    def zoomin(self, event):
+        self.h_step, self.v_step = int(self.h_step * 1.2), int(self.v_step * 1.2)
+        self.display_list = layout(
+            self.body, 
+            self.canvas.winfo_width(), 
+            self.h_step, 
+            self.v_step
+            )
+        self.draw()
+    
+    def zoomout(self, event):
+        self.h_step, self.v_step = int(self.h_step / 1.2), int(self.v_step / 1.2)
+        if self.h_step < 9: self.h_step = 9
+        if self.v_step < 9: self.v_step = 9
+        self.display_list = layout(
+            self.body,
+            self.canvas.winfo_width(), 
+            self.h_step, 
+            self.v_step
+            )
+        self.draw()
+
+    def draw(self):
+        self.canvas.delete("all")
+        font = tkinter.font.Font(size=self.v_step)
+        for x, y, c in self.display_list:
+            if y > self.scroll + self.canvas.winfo_height(): continue # below view
+            if y + VSTEP < self.scroll: continue # above view
+            self.canvas.create_text(x, y - self.scroll, text=c, font=font)
+
+    def load(self, url):
+        if url.startswith('view-source:'):
+            _, url = url.split(":", 1)
+            headers, body = request(url)
+            body = "<body>" + body.replace("<", "&lt;").replace(">", "&gt;") + "</body>" 
+        else:
+            headers, body = request(url)
+        self.body = lex(body)
+        self.display_list = layout(self.body, self.window.winfo_width(), self.h_step, self.v_step)
+        self.draw()
 
 if __name__ == "__main__":
     import sys
-    load(sys.argv[1])
+    Browser().load(sys.argv[1])
+    tkinter.mainloop()
 

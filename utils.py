@@ -38,10 +38,10 @@ class Cache:
 
     def store(self, url, headers, body):
         hash_algo = blake2b(digest_size=20)
-        cache_control_header = headers['cache-control']
+        cache_control_header = headers.get('cache-control', False)
 
         if cache_control_header and 'max-age' in cache_control_header:
-            age = headers['age']
+            age = headers.get('age', 0)
             _, max_age = cache_control_header.split('=', 1) # Input string 'max-age=<age>'
 
             cache_time_left = int(max_age) - int(age)
@@ -77,6 +77,6 @@ class Cache:
                 expiry_date = expiry_date = cache.readline() # Ignoring this line
                 headers = cache.readline().strip()
                 decoded_headers = json.loads(headers)
-                body = cache_file.read_text()
+                body = cache.read()
                 return decoded_headers, body
 
