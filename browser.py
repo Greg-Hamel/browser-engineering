@@ -33,6 +33,11 @@ BROWSER_MODES = {
 
 FONTS = {}
 
+FONT_MODIFIERS = {
+    "subscript": "subscript",
+    "superscript": "superscript",
+}
+
 redirect_counter = 0
 
 cache = Cache()
@@ -235,6 +240,8 @@ class Layout:
         self.original_font_family = font.actual('family')
         self.original_font_size = font.actual('size')
 
+        self.current_modifier = None
+
         self.font_weight = font.actual('weight')
         self.font_slant = font.actual('slant')
         self.font_size = font.actual('size')
@@ -271,7 +278,7 @@ class Layout:
                 # Ensure pre-text whitespaces are added back
                 self.cursor_x += pre_whitespace * font.measure(" ")
 
-            self.line.append((self.cursor_x, word, font))
+            self.line.append((self.cursor_x, word, font, self.current_modifier))
 
             if index + 1 < len(split_text):
                 # Add space between all words within text
@@ -328,17 +335,38 @@ class Layout:
         elif token.tag == "/h3":
             self.font_size = self.original_font_size
             self.flush()
-
+        elif token.tag == "sup" or token.tag.startswith("sup "):
+            self.current_modifier = FONT_MODIFIERS["superscript"]
+        elif token.tag == "/sup":
+            self.current_modifier = None
+        elif token.tag == "sub" or token.tag.startswith("sub "):
+            self.current_modifier = FONT_MODIFIERS["subscript"]
+        elif token.tag == "/sub":
+            self.current_modifier = None
 
     def flush(self):
         if not self.line: return
-        metrics = [font.metrics() for x, word, font in self.line]
+        metrics = [font.metrics() for x, word, font, modifier in self.line]
         max_ascent = max(metric["ascent"] for metric in metrics)
         baseline = self.cursor_y + DEFAULT_LEADING * max_ascent
 
-        for x, word, font in self.line:
-            word_y_offset = baseline - font.metrics('ascent')
-            self.display_list.append((x, word_y_offset, word, font))
+        for x, word, font, modifier in self.line:
+            base_ascent = font.metrics('ascent')
+
+            modifier_offset = 0
+            if modifier:
+                new_font = font.copy()
+                new_font.config(size=int(font.actual('size') / 1.5))
+                modifier_offset = new_font.metrics('descent')
+                if modifier == FONT_MODIFIERS["superscript"]:
+                    word_y_offset = baseline - base_ascent - modifier_offset
+                    self.display_list.append((x, word_y_offset, word, new_font))
+                elif modifier == FONT_MODIFIERS["subscript"]:
+                    word_y_offset = baseline - modifier_offset
+                    self.display_list.append((x, word_y_offset, word, new_font))
+            else:
+                word_y_offset = baseline - base_ascent
+                self.display_list.append((x, word_y_offset, word, font))
 
         self.cursor_x = HSTEP
         self.line = []
@@ -453,6 +481,8 @@ class Browser:
             self.mode = BROWSER_MODES["normal"]
             headers, body = request(url)
             self.body_tokens = lex(body, self.mode)
+
+            self.font.config()
             self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
         self.draw()
 
