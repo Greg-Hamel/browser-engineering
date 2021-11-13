@@ -18,6 +18,7 @@ AMP_CHAR_CODES = {
     "nbsp": " ",
     "ndash": "-",
     "copy": "©",
+    "#39": "'",
 }
 
 WIDTH, HEIGHT = 800, 600
@@ -211,11 +212,12 @@ class Layout:
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
-        self.weight = font.actual('weight')
-        self.slant = font.actual('slant')
-        self.size = font.actual('size')
-        self.family = font.actual('family')
         self.canvas_width = canvas_width
+        
+        self.font_weight = font.actual('weight')
+        self.font_slant = font.actual('slant')
+        self.font_size = font.actual('size')
+        self.font_family = font.actual('family')
 
         for token in tokens:
             self.tokenize(token)
@@ -228,10 +230,10 @@ class Layout:
 
     def text(self, token):
         font = tkinter.font.Font(
-            family=self.family or 'Times',
-            size=self.size,
-            weight=self.weight,
-            slant=self.slant,
+            family=self.font_family or 'Times',
+            size=self.font_size,
+            weight=self.font_weight,
+            slant=self.font_slant,
         )
         for word in token.text.split():
             w = font.measure(word)
@@ -242,14 +244,22 @@ class Layout:
             self.cursor_x += w + font.measure(" ")
     
     def tag(self, token):
-        if token.tag.startswith("i"):
-            self.slant = "italic"
-        elif token.tag.startswith("/i"):
-            self.slant = "roman"
-        elif token.tag.startswith("b"):
-            self.weight = "bold"
-        elif token.tag.startswith("/b"):
-            self.weight = "normal"
+        if token.tag == "i" or token.tag.startswith("i ") or token.tag == "em" or token.tag.startswith("em "):
+            self.font_slant = "italic"
+        elif token.tag == "/i" or token.tag == "/em":
+            self.font_slant = "roman"
+        elif token.tag == "b" or token.tag.startswith("b ") or token.tag == "strong" or token.tag.startswith("strong "):
+            self.font_weight = "bold"
+        elif token.tag == "/b" or token.tag == "/strong":
+            self.font_weight = "normal"
+        elif token.tag == "small" or token.tag.startswith("small "):
+            self.font_size -= 2
+        elif token.tag == "/small":
+            self.font_size += 2
+        elif token.tag == "big" or token.tag.startswith("big "):
+            self.font_size += 4
+        elif token.tag == "/big":
+            self.font_size -= 4
             
 
 class Browser:
