@@ -24,10 +24,14 @@ AMP_CHAR_CODES = {
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
 
+DEFAULT_LEADING = 1.25 # proportional to ascent
+
 BROWSER_MODES = {
     "source": "source",
     "normal": "normal"
 }
+
+FONTS = {}
 
 redirect_counter = 0
 
@@ -207,13 +211,28 @@ def lex(body, browser_mode):
 
     return out
 
+def get_font(size, weight, slant, family):
+    key = (size, weight, slant, family)
+
+    if key not in FONTS:
+        font = tkinter.font.Font(
+            family=family,
+            size=size,
+            weight=weight,
+            slant=slant,
+        )
+        FONTS[key] = font
+    return FONTS[key]
+
 class Layout:
     def __init__(self, tokens, font, canvas_width):
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
         self.canvas_width = canvas_width
+        self.line = []
         
+        self.font_original_family = font.actual('family')
         self.font_weight = font.actual('weight')
         self.font_slant = font.actual('slant')
         self.font_size = font.actual('size')
@@ -222,6 +241,8 @@ class Layout:
         for token in tokens:
             self.tokenize(token)
 
+        self.flush()
+
     def tokenize(self, token):
         if isinstance(token, Text):
             self.text(token)
@@ -229,18 +250,13 @@ class Layout:
             self.tag(token)
 
     def text(self, token):
-        font = tkinter.font.Font(
-            family=self.font_family or 'Times',
-            size=self.font_size,
-            weight=self.font_weight,
-            slant=self.font_slant,
-        )
+        font = get_font(self.font_size, self.font_weight, self.font_slant, self.font_family)
+        
         for word in token.text.split():
             w = font.measure(word)
             if self.cursor_x + w > self.canvas_width - HSTEP:
-                self.cursor_y += font.metrics("linespace") * 1.25
-                self.cursor_x = HSTEP
-            self.display_list.append((self.cursor_x, self.cursor_y, word, font))
+                self.flush()
+            self.line.append((self.cursor_x, word, font))
             self.cursor_x += w + font.measure(" ")
     
     def tag(self, token):
@@ -260,6 +276,36 @@ class Layout:
             self.font_size += 4
         elif token.tag == "/big":
             self.font_size -= 4
+        elif token.tag == "br":
+            self.flush()
+        elif token.tag == "/p":
+            self.flush()
+            self.cursor_y += VSTEP
+        elif token.tag == "code" or token.tag.startswith("code "):
+            self.font_family = "Monaco"
+            self.font_size -= 2
+        elif token.tag == "/code":
+            self.font_family = self.font_original_family
+            self.font_size += 2
+
+
+    def flush(self):
+        if not self.line: return
+        metrics = [font.metrics() for x, word, font in self.line]
+        max_ascent = max(metric["ascent"] for metric in metrics)
+        baseline = self.cursor_y + DEFAULT_LEADING * max_ascent
+
+        for x, word, font in self.line:
+            word_y_offset = baseline - font.metrics('ascent')
+            self.display_list.append((x, word_y_offset, word, font))
+
+        self.cursor_x = HSTEP
+        self.line = []
+
+        max_descent = max(metric["descent"] for metric in metrics)
+        self.cursor_y = baseline + DEFAULT_LEADING * max_descent
+
+        
             
 
 class Browser:
