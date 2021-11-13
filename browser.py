@@ -232,7 +232,9 @@ class Layout:
         self.canvas_width = canvas_width
         self.line = []
         
-        self.font_original_family = font.actual('family')
+        self.original_font_family = font.actual('family')
+        self.original_font_size = font.actual('size')
+
         self.font_weight = font.actual('weight')
         self.font_slant = font.actual('slant')
         self.font_size = font.actual('size')
@@ -251,13 +253,32 @@ class Layout:
 
     def text(self, token):
         font = get_font(self.font_size, self.font_weight, self.font_slant, self.font_family)
-        
-        for word in token.text.split():
+
+        lstrip_text = token.text.lstrip(" ")
+        rstrip_text = token.text.rstrip(" ")
+
+        pre_whitespace = len(token.text) - len(lstrip_text)
+        post_whitespace = len(token.text) - len(rstrip_text)
+
+        split_text = token.text.split()
+
+        for index, word in enumerate(split_text):
             w = font.measure(word)
             if self.cursor_x + w > self.canvas_width - HSTEP:
                 self.flush()
+
+            if index == 0:
+                # Ensure pre-text whitespaces are added back
+                self.cursor_x += pre_whitespace * font.measure(" ")
+
             self.line.append((self.cursor_x, word, font))
-            self.cursor_x += w + font.measure(" ")
+
+            if index + 1 < len(split_text):
+                # Add space between all words within text
+                self.cursor_x += w + font.measure(" ")
+            else:
+                # Ensure post-text whitespaces are added back, could be 0
+                self.cursor_x += w + font.measure(" ") * post_whitespace
     
     def tag(self, token):
         if token.tag == "i" or token.tag.startswith("i ") or token.tag == "em" or token.tag.startswith("em "):
@@ -285,8 +306,28 @@ class Layout:
             self.font_family = "Monaco"
             self.font_size -= 2
         elif token.tag == "/code":
-            self.font_family = self.font_original_family
+            self.font_family = self.original_font_family
             self.font_size += 2
+        elif token.tag == "/pre":
+            self.flush()
+            self.cursor_y += VSTEP
+        elif token.tag == "h1" or token.tag.startswith("h1 "):
+            self.font_size = 36
+        elif token.tag == "/h1":
+            self.font_size = self.original_font_size
+            self.flush()
+            self.cursor_y += VSTEP
+        elif token.tag == "h2" or token.tag.startswith("h2 "):
+            self.font_size = 24
+        elif token.tag == "/h2":
+            self.font_size = self.original_font_size
+            self.flush()
+            self.cursor_y += VSTEP
+        elif token.tag == "h3" or token.tag.startswith("h3 "):
+            self.font_size = 18
+        elif token.tag == "/h3":
+            self.font_size = self.original_font_size
+            self.flush()
 
 
     def flush(self):
@@ -324,6 +365,12 @@ class Browser:
             width=WIDTH,
             height=HEIGHT
         )
+
+        self.document = {
+            "height": HEIGHT,
+            "width": WIDTH,
+        }
+
         self.canvas.pack(fill='both', expand=True)
 
         self.font = tkinter.font.Font(
@@ -352,8 +399,14 @@ class Browser:
         self.draw()
 
     def resize(self, event):
-        self.display_list = Layout(self.body_tokens, self.font, event.width).display_list
-        self.draw()
+        if event.width != self.document["width"] or event.height != self.document["height"]:
+            if event.width != self.document["width"]:
+                self.display_list = Layout(self.body_tokens, self.font, event.width).display_list
+            self.document = {
+                "height": event.height,
+                "width": event.width,
+            }
+            self.draw()
 
     def scrolldown(self, event):
         self.scroll += Browser.SCROLL_STEP
@@ -367,7 +420,7 @@ class Browser:
 
     def zoomin(self, event):
         self.font.config(size=int(self.font.actual('size') * 1.2))
-        self.display_list = Layout(self.body_tokens, self.font, self.canvas.winfo_reqwidth()).display_list
+        self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
         self.draw()
     
     def zoomout(self, event):
@@ -376,14 +429,14 @@ class Browser:
         self.display_list = Layout(
             self.body_tokens,
             self.font,
-            self.canvas.winfo_reqwidth()
+            self.document["width"]
             ).display_list
         self.draw()
 
     def draw(self):
         self.canvas.delete("all")
         for x, y, c, font in self.display_list:
-            if y > self.scroll + HEIGHT:
+            if y > self.scroll + self.document["height"]:
                 continue # below view
             if y + font.metrics('linespace') < self.scroll: 
                 continue # above view
@@ -395,12 +448,12 @@ class Browser:
             _, url = url.split(":", 1)
             headers, body = request(url)
             self.body_tokens = lex(body, self.mode)
-            self.display_list = Layout(self.body_tokens, self.font, self.canvas.winfo_reqwidth()).display_list
+            self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
         else:
             self.mode = BROWSER_MODES["normal"]
             headers, body = request(url)
             self.body_tokens = lex(body, self.mode)
-            self.display_list = Layout(self.body_tokens, self.font, self.canvas.winfo_reqwidth()).display_list
+            self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
         self.draw()
 
 if __name__ == "__main__":
