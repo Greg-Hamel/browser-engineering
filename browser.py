@@ -224,7 +224,7 @@ class HTMLParser:
 
     HEAD_TAGS = ["base", "basefont", "bgsound", "noscript", "link", "meta", "title", "style", "script"]
 
-    def __init__(self, body, mode):
+    def __init__(self, body):
         self.body = body
         self.unfinished = []
 
@@ -285,36 +285,38 @@ class HTMLParser:
                 break
 
     def parse(self):
-        # if browser_mode == BROWSER_MODES['source']:
-        #     body = body.replace("<", "&lt;").replace(">", "&gt;")
         text = ""
         in_tag = False
+        in_comment = False
+        current_pattern = ""
         for c in self.body:
-            if c == "<":
-                in_tag = True
-                if text: self.add_text(text)
-                text = ""
-            elif c == ">":
-                in_tag = False
-                self.add_tag(text)
-                text = ""
+            print(text, current_pattern, in_comment, sep=",")
+            if in_tag and "!--".startswith(current_pattern + c) and not in_comment:
+                if current_pattern == "<!--":
+                    text = ""
+                    in_tag = False
+                    in_comment = True
+                current_pattern += c
+            elif current_pattern:
+                current_pattern = ""
+                
+
+            if not in_comment and not current_pattern:
+                if c == "<":
+                    in_tag = True
+                    if text: self.add_text(text)
+                    text = ""
+                elif c == ">":
+                    in_tag = False
+                    self.add_tag(text)
+                    text = ""
+                else:
+                    text += c
             else:
                 text += c
-        if not in_tag and text:
-            self.add_text(text)
-
-        # if browser_mode == BROWSER_MODES['normal']:
-        #     body_start = 0
-        #     body_end = -1
-
-        #     for index, token in enumerate(out):
-        #         if isinstance(token, Element):
-        #             if token.tag.startswith('body'):
-        #                 body_start = index + 1
-        #             elif token.tag.startswith('/body'):
-        #                 body_end = index
-            
-        #     return out[body_start : body_end]
+                if "-->" in text:
+                    text = ""
+                    in_comment = False
 
         return self.finish()
 
@@ -577,13 +579,14 @@ class Browser:
             self.mode = BROWSER_MODES["source"]
             _, url = url.split(":", 1)
             headers, body = request(url)
-            self.body_tokens = HTMLParser(body, self.mode).parse()
+            body = body.replace("<", "&lt;").replace(">", "&gt;")
+            self.body_tokens = HTMLParser(body).parse()
             self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
             self.draw()
         else:
             self.mode = BROWSER_MODES["normal"]
             headers, body = request(url)
-            self.body_tokens = HTMLParser(body, self.mode).parse()
+            self.body_tokens = HTMLParser(body).parse()
             self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
             self.draw()
 
