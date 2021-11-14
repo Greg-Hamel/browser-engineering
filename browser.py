@@ -42,6 +42,19 @@ redirect_counter = 0
 
 cache = Cache()
 
+def get_font(size, weight, slant, family):
+    key = (size, weight, slant, family)
+
+    if key not in FONTS:
+        font = tkinter.font.Font(
+            family=family,
+            size=size,
+            weight=weight,
+            slant=slant,
+        )
+        FONTS[key] = font
+    return FONTS[key]
+
 def request(url, additional_headers = {}, redirect_number = 0):
     full_url = url
     scheme, url = url.split(":", 1)
@@ -155,8 +168,16 @@ def request(url, additional_headers = {}, redirect_number = 0):
     return response_headers, body
 
 class Text:
-    def __init__(self, text):
+    def __init__(self, text, parent):
         self.text = self.transform_amp(text)
+        self.children = []
+        self.parent = parent
+
+    def __repr__(self):
+        return repr(self.text)
+
+    def visualize(self, indent=0):
+        print(" " * indent, self.text)
 
     def transform_amp(self, input_text):
         text = ""
@@ -176,61 +197,138 @@ class Text:
         
         return text
 
-
-class Tag:
-    def __init__(self, tag):
+class Element:
+    def __init__(self, tag, attributes, parent):
         self.tag = tag
+        self.children = []
+        self.parent = parent
+        self.attributes = attributes
+    
+    def __repr__(self):
+        return "<" + self.tag + ">"
 
-def lex(body, browser_mode):
-    if browser_mode == BROWSER_MODES['source']:
-        body = body.replace("<", "&lt;").replace(">", "&gt;")
-    out = []
-    text = ""
-    in_tag = False
-    for c in body:
-        if c == "<":
-            in_tag = True
-            if text: out.append(Text(text))
-            text = ""
-        elif c == ">":
-            in_tag = False
-            out.append(Tag(text))
-            text = ""
+    def visualize(self, indent=0):
+        if len(self.children) == 1:
+            print(" " * indent, "<" + self.tag + ">" + repr(self.children[0]) + "</" + self.tag + ">")
         else:
-            text += c
-    if not in_tag and text:
-        out.append(Text(text))
+            print(" " * indent, "<" + self.tag + ">")
+            for child in self.children:
+                child.visualize(indent + 2)
+            print(" " * indent, "</" + self.tag + ">")
 
-    if browser_mode == BROWSER_MODES['normal']:
-        body_start = 0
-        body_end = -1
+class HTMLParser:
+    SELF_CLOSING_TAGS = [
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    ]
 
-        for index, token in enumerate(out):
-            if isinstance(token, Tag):
-                if token.tag.startswith('body'):
-                    body_start = index + 1
-                elif token.tag.startswith('/body'):
-                    body_end = index
-        
-        return out[body_start : body_end]
+    HEAD_TAGS = ["base", "basefont", "bgsound", "noscript", "link", "meta", "title", "style", "script"]
 
-    return out
+    def __init__(self, body, mode):
+        self.body = body
+        self.unfinished = []
 
-def get_font(size, weight, slant, family):
-    key = (size, weight, slant, family)
+    def get_attributes(self, text):
+        parts = text.split(" ", 1)
+        tag = parts[0].lower()
+        attributes = {}
+        for attrpair in parts[1:]:
+            if "=" in attrpair:
+                key, value = attrpair.split("=", 1)
+                if len(value) > 2 and value[0] in ["'", "\""]:
+                    value = value[1:-1]
+                attributes[key.lower()] = value
+            else:
+                attributes[attrpair.lower()] = ""
+            
+        return tag, attributes
 
-    if key not in FONTS:
-        font = tkinter.font.Font(
-            family=family,
-            size=size,
-            weight=weight,
-            slant=slant,
-        )
-        FONTS[key] = font
-    return FONTS[key]
+    def add_text(self, text):
+        if text.isspace(): return
+        self.implicit_tags(None)
+        parent = self.unfinished[-1]
+        node = Text(text, parent)
+        parent.children.append(node)
+    
+    def add_tag(self, tag):
+        tag, attributes = self.get_attributes(tag)
+        if tag.startswith("!"): return
+
+        self.implicit_tags(tag)
+
+        if tag.startswith("/"):
+            if len(self.unfinished) == 1: return
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+        elif tag in HTMLParser.SELF_CLOSING_TAGS:
+            parent = self.unfinished[-1]
+            node = Element(tag, attributes, parent)
+            parent.children.append(node)
+        else:
+            parent = self.unfinished[-1] if self.unfinished else None
+            node = Element(tag, attributes, parent)
+            self.unfinished.append(node)
+
+    def implicit_tags(self, tag):
+        while True:
+            open_tags = [node.tag for node in self.unfinished]
+
+            if open_tags == [] and tag != "html":
+                self.add_tag("html")
+            elif open_tags == ["html"] and tag not in ["head", "body", "/html"]:
+                if tag in self.HEAD_TAGS:
+                    self.add_tag("head")
+                else:
+                    self.add_tag("body")
+            else:
+                break
+
+    def parse(self):
+        # if browser_mode == BROWSER_MODES['source']:
+        #     body = body.replace("<", "&lt;").replace(">", "&gt;")
+        text = ""
+        in_tag = False
+        for c in self.body:
+            if c == "<":
+                in_tag = True
+                if text: self.add_text(text)
+                text = ""
+            elif c == ">":
+                in_tag = False
+                self.add_tag(text)
+                text = ""
+            else:
+                text += c
+        if not in_tag and text:
+            self.add_text(text)
+
+        # if browser_mode == BROWSER_MODES['normal']:
+        #     body_start = 0
+        #     body_end = -1
+
+        #     for index, token in enumerate(out):
+        #         if isinstance(token, Element):
+        #             if token.tag.startswith('body'):
+        #                 body_start = index + 1
+        #             elif token.tag.startswith('/body'):
+        #                 body_end = index
+            
+        #     return out[body_start : body_end]
+
+        return self.finish()
+
+    def finish(self):
+        if len(self.unfinished) == 0:
+            self.add_tag("html")
+        while len(self.unfinished) > 1:
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+        return self.unfinished.pop()
 
 class Layout:
-    def __init__(self, tokens, font, canvas_width):
+    def __init__(self, tree, font, canvas_width):
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
@@ -247,16 +345,76 @@ class Layout:
         self.font_size = font.actual('size')
         self.font_family = font.actual('family')
 
-        for token in tokens:
-            self.tokenize(token)
-
+        self.recurse(tree)
         self.flush()
 
-    def tokenize(self, token):
-        if isinstance(token, Text):
-            self.text(token)
-        if isinstance(token, Tag):
-            self.tag(token)
+    def open_tag(self, tag):
+        if tag == "i" or tag == "em":
+            self.font_slant = "italic"
+        elif tag == "b"  or tag == "strong":
+            self.font_weight = "bold"
+        elif tag == "small":
+            self.font_size -= 2
+        elif tag == "big":
+            self.font_size += 4
+        elif tag == "br":
+            self.flush()
+        elif tag == "code":
+            self.font_family = "Monaco"
+            self.font_size -= 2
+        elif tag == "h1":
+            self.font_size = 36
+        elif tag == "h2":
+            self.font_size = 24
+        elif tag == "h3":
+            self.font_size = 18
+        elif tag == "sup":
+            self.current_modifier = FONT_MODIFIERS["superscript"]
+        elif tag == "sub":
+            self.current_modifier = FONT_MODIFIERS["subscript"]
+
+    def close_tag(self, tag):
+        if tag == "i" or tag == "em":
+            self.font_slant = "roman"
+        elif tag == "b" or tag == "strong":
+            self.font_weight = "normal"
+        elif tag == "small":
+            self.font_size += 2
+        elif tag == "big":
+            self.font_size -= 4
+        elif tag == "p":
+            self.flush()
+            self.cursor_y += VSTEP
+        elif tag == "code":
+            self.font_family = self.original_font_family
+            self.font_size += 2
+        elif tag == "pre":
+            self.flush()
+            self.cursor_y += VSTEP
+        elif tag == "h1":
+            self.font_size = self.original_font_size
+            self.flush()
+            self.cursor_y += VSTEP
+        elif tag == "h2":
+            self.font_size = self.original_font_size
+            self.flush()
+            self.cursor_y += VSTEP
+        elif tag == "h3":
+            self.font_size = self.original_font_size
+            self.flush()
+        elif tag == "sup":
+            self.current_modifier = None
+        elif tag == "sub":
+            self.current_modifier = None
+
+    def recurse(self, tree):
+        if isinstance(tree, Text):
+            self.text(tree)
+        else:
+            self.open_tag(tree.tag)
+            for child in tree.children:
+                self.recurse(child)
+            self.close_tag(tree.tag)
 
     def text(self, token):
         font = get_font(self.font_size, self.font_weight, self.font_slant, self.font_family)
@@ -286,63 +444,6 @@ class Layout:
             else:
                 # Ensure post-text whitespaces are added back, could be 0
                 self.cursor_x += w + font.measure(" ") * post_whitespace
-    
-    def tag(self, token):
-        if token.tag == "i" or token.tag.startswith("i ") or token.tag == "em" or token.tag.startswith("em "):
-            self.font_slant = "italic"
-        elif token.tag == "/i" or token.tag == "/em":
-            self.font_slant = "roman"
-        elif token.tag == "b" or token.tag.startswith("b ") or token.tag == "strong" or token.tag.startswith("strong "):
-            self.font_weight = "bold"
-        elif token.tag == "/b" or token.tag == "/strong":
-            self.font_weight = "normal"
-        elif token.tag == "small" or token.tag.startswith("small "):
-            self.font_size -= 2
-        elif token.tag == "/small":
-            self.font_size += 2
-        elif token.tag == "big" or token.tag.startswith("big "):
-            self.font_size += 4
-        elif token.tag == "/big":
-            self.font_size -= 4
-        elif token.tag == "br":
-            self.flush()
-        elif token.tag == "/p":
-            self.flush()
-            self.cursor_y += VSTEP
-        elif token.tag == "code" or token.tag.startswith("code "):
-            self.font_family = "Monaco"
-            self.font_size -= 2
-        elif token.tag == "/code":
-            self.font_family = self.original_font_family
-            self.font_size += 2
-        elif token.tag == "/pre":
-            self.flush()
-            self.cursor_y += VSTEP
-        elif token.tag == "h1" or token.tag.startswith("h1 "):
-            self.font_size = 36
-        elif token.tag == "/h1":
-            self.font_size = self.original_font_size
-            self.flush()
-            self.cursor_y += VSTEP
-        elif token.tag == "h2" or token.tag.startswith("h2 "):
-            self.font_size = 24
-        elif token.tag == "/h2":
-            self.font_size = self.original_font_size
-            self.flush()
-            self.cursor_y += VSTEP
-        elif token.tag == "h3" or token.tag.startswith("h3 "):
-            self.font_size = 18
-        elif token.tag == "/h3":
-            self.font_size = self.original_font_size
-            self.flush()
-        elif token.tag == "sup" or token.tag.startswith("sup "):
-            self.current_modifier = FONT_MODIFIERS["superscript"]
-        elif token.tag == "/sup":
-            self.current_modifier = None
-        elif token.tag == "sub" or token.tag.startswith("sub "):
-            self.current_modifier = FONT_MODIFIERS["subscript"]
-        elif token.tag == "/sub":
-            self.current_modifier = None
 
     def flush(self):
         if not self.line: return
@@ -427,7 +528,7 @@ class Browser:
         self.draw()
 
     def resize(self, event):
-        if event.width != self.document["width"] or event.height != self.document["height"]:
+        if (event.width != self.document["width"] or event.height != self.document["height"]) and self.display_list:
             if event.width != self.document["width"]:
                 self.display_list = Layout(self.body_tokens, self.font, event.width).display_list
             self.document = {
@@ -471,20 +572,20 @@ class Browser:
             self.canvas.create_text(x, y - self.scroll, text=c, font=font, anchor="nw")
 
     def load(self, url):
+        print("loading", url)
         if url.startswith('view-source:'):
             self.mode = BROWSER_MODES["source"]
             _, url = url.split(":", 1)
             headers, body = request(url)
-            self.body_tokens = lex(body, self.mode)
+            self.body_tokens = HTMLParser(body, self.mode).parse()
             self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
+            self.draw()
         else:
             self.mode = BROWSER_MODES["normal"]
             headers, body = request(url)
-            self.body_tokens = lex(body, self.mode)
-
-            self.font.config()
+            self.body_tokens = HTMLParser(body, self.mode).parse()
             self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
-        self.draw()
+            self.draw()
 
 if __name__ == "__main__":
     import sys
