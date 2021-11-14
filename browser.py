@@ -163,7 +163,7 @@ def request(url, additional_headers = {}, redirect_number = 0):
             mediatype, *mediaoptions = typeinfo.split(";")
 
         response_headers = ""
-        body = "<body>" + data + "\r\n" + "</body>"
+        body = data
 
     return response_headers, body
 
@@ -208,7 +208,7 @@ class Element:
         return "<" + self.tag + ">"
 
     def visualize(self, indent=0):
-        if len(self.children) == 1:
+        if self.tag == "span" and len(self.children) == 1:
             print(" " * indent, "<" + self.tag + ">" + repr(self.children[0]) + "</" + self.tag + ">")
         else:
             print(" " * indent, "<" + self.tag + ">")
@@ -256,6 +256,12 @@ class HTMLParser:
 
         self.implicit_tags(tag)
 
+        if tag == "p" and repr(self.unfinished[-1]) == "<p>":
+            # If '<p>' children of '<p>'
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+
         if tag.startswith("/"):
             if len(self.unfinished) == 1: return
             node = self.unfinished.pop()
@@ -290,7 +296,6 @@ class HTMLParser:
         in_comment = False
         current_pattern = ""
         for c in self.body:
-            print(text, current_pattern, in_comment, sep=",")
             if in_tag and "!--".startswith(current_pattern + c) and not in_comment:
                 if current_pattern == "<!--":
                     text = ""
@@ -299,7 +304,6 @@ class HTMLParser:
                 current_pattern += c
             elif current_pattern:
                 current_pattern = ""
-                
 
             if not in_comment and not current_pattern:
                 if c == "<":
@@ -588,6 +592,7 @@ class Browser:
             headers, body = request(url)
             self.body_tokens = HTMLParser(body).parse()
             self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
+            self.body_tokens.visualize() 
             self.draw()
 
 if __name__ == "__main__":
