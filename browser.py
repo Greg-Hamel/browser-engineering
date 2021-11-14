@@ -206,14 +206,16 @@ class Element:
     
     def __repr__(self):
         return "<" + self.tag + ">"
-
+    
     def visualize(self, indent=0):
-        if self.tag == "span" and len(self.children) == 1:
-            print(" " * indent, "<" + self.tag + ">" + repr(self.children[0]) + "</" + self.tag + ">")
+        if self.tag in HTMLParser.SELF_CLOSING_TAGS:
+            print(" " * indent, "<" + self.tag + " />")
         else:
             print(" " * indent, "<" + self.tag + ">")
-            for child in self.children:
-                child.visualize(indent + 2)
+        for child in self.children:
+            child.visualize(indent + 2)
+        
+        if self.tag not in HTMLParser.SELF_CLOSING_TAGS:
             print(" " * indent, "</" + self.tag + ">")
 
 class HTMLParser:
@@ -257,7 +259,7 @@ class HTMLParser:
         self.implicit_tags(tag)
 
         if tag == "p" and repr(self.unfinished[-1]) == "<p>":
-            # If '<p>' children of '<p>'
+            # If '<p>' child of '<p>'
             node = self.unfinished.pop()
             parent = self.unfinished[-1]
             parent.children.append(node)
@@ -294,10 +296,11 @@ class HTMLParser:
         text = ""
         in_tag = False
         in_comment = False
+        in_script = False
         current_pattern = ""
         for c in self.body:
             if in_tag and "!--".startswith(current_pattern + c) and not in_comment:
-                if current_pattern == "<!--":
+                if current_pattern == "!--":
                     text = ""
                     in_tag = False
                     in_comment = True
@@ -308,19 +311,25 @@ class HTMLParser:
             if not in_comment and not current_pattern:
                 if c == "<":
                     in_tag = True
-                    if text: self.add_text(text)
+                    if text and not in_script: self.add_text(text)
                     text = ""
-                elif c == ">":
+                elif c == ">":                    
                     in_tag = False
+                    if text.startswith("script"):
+                        in_script = True
+                    elif text.startswith("/script"):
+                        in_script = False
                     self.add_tag(text)
                     text = ""
                 else:
                     text += c
-            else:
+            elif in_comment:
                 text += c
                 if "-->" in text:
                     text = ""
                     in_comment = False
+            else:
+                text += c
 
         return self.finish()
 
@@ -480,10 +489,6 @@ class Layout:
 
         max_descent = max(metric["descent"] for metric in metrics)
         self.cursor_y = baseline + DEFAULT_LEADING * max_descent
-
-        
-            
-
 class Browser:
     SCROLL_STEP = 100
 
@@ -578,7 +583,6 @@ class Browser:
             self.canvas.create_text(x, y - self.scroll, text=c, font=font, anchor="nw")
 
     def load(self, url):
-        print("loading", url)
         if url.startswith('view-source:'):
             self.mode = BROWSER_MODES["source"]
             _, url = url.split(":", 1)
@@ -591,8 +595,8 @@ class Browser:
             self.mode = BROWSER_MODES["normal"]
             headers, body = request(url)
             self.body_tokens = HTMLParser(body).parse()
+            self.body_tokens.visualize()
             self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
-            self.body_tokens.visualize() 
             self.draw()
 
 if __name__ == "__main__":
