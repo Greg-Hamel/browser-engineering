@@ -210,13 +210,15 @@ class Element:
     def visualize(self, indent=0):
         if self.tag in HTMLParser.SELF_CLOSING_TAGS:
             print(" " * indent, "<" + self.tag + " />")
-        else:
+        elif len(self.children) > 0:
+            # Non self-closing with children
             print(" " * indent, "<" + self.tag + ">")
-        for child in self.children:
-            child.visualize(indent + 2)
-        
-        if self.tag not in HTMLParser.SELF_CLOSING_TAGS:
+            for child in self.children:
+                child.visualize(indent + 2)
             print(" " * indent, "</" + self.tag + ">")
+        else:
+            # Non self-closing without children
+            print(" " * indent, "<" + self.tag + "></" + self.tag + ">")
 
 class HTMLParser:
     SELF_CLOSING_TAGS = [
@@ -305,13 +307,13 @@ class HTMLParser:
                     in_tag = False
                     in_comment = True
                 current_pattern += c
-            elif current_pattern:
+            elif current_pattern and not in_script:
                 current_pattern = ""
 
-            if not in_comment and not current_pattern:
+            if not in_comment and not current_pattern and not in_script:
                 if c == "<":
                     in_tag = True
-                    if text and not in_script: self.add_text(text)
+                    if text: self.add_text(text)
                     text = ""
                 elif c == ">":                    
                     in_tag = False
@@ -323,6 +325,30 @@ class HTMLParser:
                     text = ""
                 else:
                     text += c
+            elif in_script:
+                if in_tag and "</script>".startswith(current_pattern + c):
+                    print(current_pattern + c)
+                    if current_pattern + c == "</script>":
+                        print('### Restore!!')
+                        if text: self.add_text(text)
+                        self.add_tag("/script")
+                        in_script = False
+                        in_tag = False
+                        text = ""
+                        current_pattern = ""
+                    else: 
+                        current_pattern += c
+                elif in_tag:
+                    print(current_pattern + c)
+                    text += current_pattern + c
+                    current_pattern = ""
+                    in_tag = False
+                else:
+                    if c == "<" and not in_tag:
+                        current_pattern += c
+                        in_tag = True
+                    else:
+                        text += c
             elif in_comment:
                 text += c
                 if "-->" in text:
@@ -595,6 +621,7 @@ class Browser:
             self.mode = BROWSER_MODES["normal"]
             headers, body = request(url)
             self.body_tokens = HTMLParser(body).parse()
+            input("Press Enter to continue...")
             self.body_tokens.visualize()
             self.display_list = Layout(self.body_tokens, self.font, self.document["width"]).display_list
             self.draw()
