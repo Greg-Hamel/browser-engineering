@@ -233,7 +233,7 @@ class HTMLParser:
         self.unfinished = []
 
     def get_attributes(self, text):
-        parts = text.split(" ", 1)
+        parts = text.split(maxsplit=1)
         tag = parts[0].lower()
         attributes = {}
         for attrpair in parts[1:]:
@@ -299,6 +299,7 @@ class HTMLParser:
         in_tag = False
         in_comment = False
         in_script = False
+        in_quoted_attribute = False
         current_pattern = ""
         for c in self.body:
             if in_tag and "!--".startswith(current_pattern + c) and not in_comment:
@@ -310,7 +311,10 @@ class HTMLParser:
             elif current_pattern and not in_script:
                 current_pattern = ""
 
-            if not in_comment and not current_pattern and not in_script:
+            if in_tag and c == '"':
+                in_quoted_attribute = not in_quoted_attribute
+
+            if not in_comment and not current_pattern and not in_script and not in_quoted_attribute:
                 if c == "<":
                     in_tag = True
                     if text: self.add_text(text)
@@ -319,8 +323,6 @@ class HTMLParser:
                     in_tag = False
                     if text.startswith("script"):
                         in_script = True
-                    elif text.startswith("/script"):
-                        in_script = False
                     self.add_tag(text)
                     text = ""
                 else:

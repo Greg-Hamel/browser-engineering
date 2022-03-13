@@ -74,7 +74,7 @@ class Cache:
 
         if cache_file.is_file():
             with cache_file.open() as cache:
-                expiry_date = expiry_date = cache.readline() # Ignoring this line
+                expiry_date = cache.readline() # Ignoring this line
                 headers = cache.readline().strip()
                 decoded_headers = json.loads(headers)
                 body = cache.read()
