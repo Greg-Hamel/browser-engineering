@@ -327,9 +327,7 @@ class HTMLParser:
                     text += c
             elif in_script:
                 if in_tag and "</script>".startswith(current_pattern + c):
-                    print(current_pattern + c)
                     if current_pattern + c == "</script>":
-                        print('### Restore!!')
                         if text: self.add_text(text)
                         self.add_tag("/script")
                         in_script = False
@@ -339,7 +337,6 @@ class HTMLParser:
                     else: 
                         current_pattern += c
                 elif in_tag:
-                    print(current_pattern + c)
                     text += current_pattern + c
                     current_pattern = ""
                     in_tag = False
